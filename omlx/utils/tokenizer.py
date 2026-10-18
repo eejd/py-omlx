@@ -46,6 +46,21 @@ def _fresh_detokenizer(tokenizer: Any, key: str, build: Callable[[], Any]) -> An
     return detokenizer
 
 
+def encode_rendered_prompt(tokenizer, prompt: str) -> list[int]:
+    """Tokenize a chat-template-rendered prompt without a second BOS.
+
+    Templates such as Llama 3's begin with ``{{ bos_token }}``. Encoding the rendered
+    text with the tokenizer's default ``add_special_tokens=True`` then yields two
+    leading BOS ids. When the prompt already starts with the tokenizer's BOS text the
+    template owns it, so special tokens are not added again; otherwise the tokenizer
+    default applies. Raw ``/v1/completions`` prompts do not use this helper.
+    """
+    bos_token = getattr(tokenizer, "bos_token", None)
+    if isinstance(bos_token, str) and bos_token and prompt.startswith(bos_token):
+        return list(tokenizer.encode(prompt, add_special_tokens=False))
+    return list(tokenizer.encode(prompt))
+
+
 def unwrap_tokenizer(tokenizer):
     """Unwrap mlx-lm TokenizerWrapper to a HuggingFace PreTrainedTokenizer.
 

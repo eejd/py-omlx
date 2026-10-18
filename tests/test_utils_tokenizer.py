@@ -635,3 +635,46 @@ class TestMistralCommonTokenizerConfig:
         repo = self._make_mistral_repo(tmp_path)
         config = get_tokenizer_config(str(repo))
         assert "eos_token" not in config
+
+
+class TestEncodeRenderedPrompt:
+    """A rendered chat prompt that already starts with BOS must not get a second one."""
+
+    BOS = "<|begin_of_text|>"
+
+    @classmethod
+    def _tokenizer(cls, *, bos_token=BOS):
+        # Llama-3-like: the post-processor prepends BOS when add_special_tokens=True.
+        from tokenizers import Tokenizer
+        from tokenizers.models import WordLevel
+        from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.processors import TemplateProcessing
+        from transformers import PreTrainedTokenizerFast
+
+        vocab = {"[UNK]": 0, cls.BOS: 1, "hello": 2, "world": 3}
+        backend = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
+        backend.pre_tokenizer = Whitespace()
+        backend.post_processor = TemplateProcessing(
+            single=f"{cls.BOS} $A", special_tokens=[(cls.BOS, 1)]
+        )
+        return PreTrainedTokenizerFast(
+            tokenizer_object=backend, unk_token="[UNK]", bos_token=bos_token
+        )
+
+    def test_template_bos_is_not_doubled(self):
+        from omlx.utils.tokenizer import encode_rendered_prompt
+
+        tok = self._tokenizer()
+        assert tok.encode(f"{self.BOS}hello world") == [1, 1, 2, 3]  # the defect
+        assert encode_rendered_prompt(tok, f"{self.BOS}hello world") == [1, 2, 3]
+
+    def test_prompt_without_bos_still_gets_one(self):
+        from omlx.utils.tokenizer import encode_rendered_prompt
+
+        assert encode_rendered_prompt(self._tokenizer(), "hello world") == [1, 2, 3]
+
+    def test_tokenizer_without_bos_token_uses_default_encoding(self):
+        from omlx.utils.tokenizer import encode_rendered_prompt
+
+        tok = self._tokenizer(bos_token=None)
+        assert encode_rendered_prompt(tok, "hello world") == tok.encode("hello world")
