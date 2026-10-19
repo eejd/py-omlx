@@ -203,6 +203,7 @@ from .exceptions import (
 )
 from .model_settings import forced_ct_keys, merge_chat_template_request_kwargs
 from .server_metrics import get_server_metrics, reset_server_metrics
+from .utils.tokenizer import encode_rendered_prompt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -3799,6 +3800,8 @@ async def create_completion(
         # Validate context window for each prompt
         prompt_token_ids_by_prompt = []
         for prompt in prompts:
+            # Raw completion prompt (not a chat-template render): keep the tokenizer's
+            # special-token default, like the scheduler does for string prompts.
             prompt_token_ids = list(engine.tokenizer.encode(prompt))
             prompt_token_ids_by_prompt.append(prompt_token_ids)
             validate_context_window(len(prompt_token_ids), request.model)
@@ -6107,7 +6110,7 @@ async def stream_anthropic_messages(
                 template_kwargs.update(kwargs["chat_template_kwargs"])
             prompt = engine.tokenizer.apply_chat_template(messages, **template_kwargs)
             # Tokenize to count
-            tokens = engine.tokenizer.encode(prompt)
+            tokens = encode_rendered_prompt(engine.tokenizer, prompt)
             estimated_input_tokens = len(tokens)
     except Exception as e:
         logger.debug(f"Could not estimate input tokens: {e}")
@@ -6930,7 +6933,7 @@ async def count_anthropic_tokens(
 
         # Tokenize to count tokens
         if isinstance(prompt, str):
-            token_ids = tokenizer.encode(prompt)
+            token_ids = encode_rendered_prompt(tokenizer, prompt)
         else:
             token_ids = prompt  # Already tokenized
 

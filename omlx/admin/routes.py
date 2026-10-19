@@ -56,6 +56,7 @@ from ..model_settings import (
 )
 from ..patches.moe_offload_compat import moe_offload_compatibility
 from ..settings import BURST_DECODE_MODES, SubKeyEntry, burst_decode_env
+from ..utils.tokenizer import encode_rendered_prompt
 from ..utils.hardware import (
     compute_owner_hash,
     get_chip_name,
@@ -7418,7 +7419,7 @@ async def probe_cache(
                 tokenize=False,
                 add_generation_prompt=True,
             )
-        token_ids = list(tokenizer.encode(prompt))
+        token_ids = encode_rendered_prompt(tokenizer, prompt)
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to tokenize messages: {exc}"

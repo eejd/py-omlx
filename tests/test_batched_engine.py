@@ -1144,3 +1144,93 @@ class TestBatchedEngineMoeOffloadWiring:
             "test-model",
             engine._model_settings.moe_expert_offload_resident_fraction,
         )
+
+
+class TestBatchedEngineChatBos:
+    """Chat prompts rendered by a BOS-owning template reach the scheduler with one BOS.
+
+    The scheduler encodes a string prompt with the tokenizer's default special
+    tokens, which adds a second BOS to a rendered Llama-3 chat prompt; chat paths
+    therefore hand it token ids, while raw completion prompts stay strings.
+    """
+
+    BOS = "<|begin_of_text|>"
+
+    @classmethod
+    def _tokenizer(cls):
+        from tokenizers import Tokenizer
+        from tokenizers.models import WordLevel
+        from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.processors import TemplateProcessing
+        from transformers import PreTrainedTokenizerFast
+
+        vocab = {"[UNK]": 0, cls.BOS: 1, "hello": 2, "world": 3}
+        backend = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
+        backend.pre_tokenizer = Whitespace()
+        backend.post_processor = TemplateProcessing(
+            single=f"{cls.BOS} $A", special_tokens=[(cls.BOS, 1)]
+        )
+        return PreTrainedTokenizerFast(
+            tokenizer_object=backend, unk_token="[UNK]", bos_token=cls.BOS
+        )
+
+    def _engine(self, rendered: str):
+        from omlx.engine.batched import BatchedEngine
+
+        engine = BatchedEngine(model_name="test-model")
+        engine._loaded = True
+        engine._model_settings = SimpleNamespace(specprefill_enabled=False)
+        engine._preprocess_messages = lambda m: m
+        engine._apply_chat_template = lambda msgs, *a, **k: rendered
+        engine._tokenizer = self._tokenizer()
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_chat_hands_scheduler_single_bos_ids(self):
+        engine = self._engine(f"{self.BOS}hello world")
+        engine._engine = SimpleNamespace(
+            generate=AsyncMock(
+                return_value=SimpleNamespace(
+                    output_text="", prompt_tokens=3, completion_tokens=0,
+                    finish_reason="stop", tool_calls=None, cached_tokens=0,
+                    first_token_at=None,
+                )
+            )
+        )
+
+        await engine.chat([{"role": "user", "content": "hi"}])
+
+        assert engine._engine.generate.call_args.kwargs["prompt"] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_hands_scheduler_single_bos_ids(self):
+        engine = self._engine(f"{self.BOS}hello world")
+        fake_core = FakeStreamingCore()
+        engine._engine = fake_core
+
+        stream = engine.stream_chat([{"role": "user", "content": "hi"}])
+        await stream.__anext__()
+        await stream.aclose()
+
+        assert fake_core.add_request_kwargs["prompt"] == [1, 2, 3]
+
+    def test_count_chat_tokens_matches_scheduler_ids(self):
+        engine = self._engine(f"{self.BOS}hello world")
+        assert engine.count_chat_tokens([{"role": "user", "content": "hi"}]) == 3
+
+    @pytest.mark.asyncio
+    async def test_raw_completion_prompt_is_forwarded_untouched(self):
+        engine = self._engine("unused")
+        engine._engine = SimpleNamespace(
+            generate=AsyncMock(
+                return_value=SimpleNamespace(
+                    output_text="", prompt_tokens=3, completion_tokens=0,
+                    finish_reason="stop", tool_calls=None, cached_tokens=0,
+                    first_token_at=None,
+                )
+            )
+        )
+
+        await engine.generate("hello world")
+
+        assert engine._engine.generate.call_args.kwargs["prompt"] == "hello world"

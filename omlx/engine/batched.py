@@ -21,7 +21,7 @@ from ..model_settings import (
     validate_ane_prefill,
 )
 from ..reasoning_effort import apply_chat_template_with_reasoning_effort_fallback
-from ..utils.tokenizer import get_tokenizer_config
+from ..utils.tokenizer import encode_rendered_prompt, get_tokenizer_config
 from .base import (
     BaseEngine,
     GenerationOutput,
@@ -952,7 +952,7 @@ class BatchedEngine(BaseEngine):
             chat_template_kwargs=chat_template_kwargs,
             is_partial=is_partial,
         )
-        return len(self._tokenizer.encode(prompt))
+        return len(encode_rendered_prompt(self._tokenizer, prompt))
 
     @staticmethod
     def _pop_specprefill_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -1008,8 +1008,10 @@ class BatchedEngine(BaseEngine):
                 non_system_prompt = self._apply_chat_template(
                     non_system, template_tools, chat_template_kwargs=ct_kwargs
                 )
-                full_tokens = len(self._tokenizer.encode(prompt))
-                non_system_tokens = len(self._tokenizer.encode(non_system_prompt))
+                full_tokens = len(encode_rendered_prompt(self._tokenizer, prompt))
+                non_system_tokens = len(
+                    encode_rendered_prompt(self._tokenizer, non_system_prompt)
+                )
                 system_end = full_tokens - non_system_tokens
                 if system_end > 0:
                     kwargs["specprefill_system_end"] = system_end
@@ -1297,7 +1299,9 @@ class BatchedEngine(BaseEngine):
             kwargs["generation_prompt_persists"] = persists
 
         return await self.generate(
-            prompt=prompt,
+            # Pre-tokenize the rendered prompt so a template-owned BOS is not doubled
+            # when the scheduler would otherwise encode the string with special tokens.
+            prompt=encode_rendered_prompt(self._tokenizer, prompt),
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
@@ -1352,7 +1356,7 @@ class BatchedEngine(BaseEngine):
         # through the existing handler chain so the response shape stays
         # consistent.
         try:
-            num_tokens = len(self._tokenizer.encode(prompt))
+            num_tokens = len(encode_rendered_prompt(self._tokenizer, prompt))
         except Exception as e:
             logger.warning(
                 "BatchedEngine.preflight_chat: tokenizer.encode raised %s; "
@@ -1459,7 +1463,7 @@ class BatchedEngine(BaseEngine):
             kwargs["generation_prompt_persists"] = persists
 
         async for output in self.stream_generate(
-            prompt=prompt,
+            prompt=encode_rendered_prompt(self._tokenizer, prompt),
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
