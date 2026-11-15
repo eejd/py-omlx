@@ -204,6 +204,35 @@ def test_verify_gate_routes_qwen4_l2_norm(monkeypatch):
     transaction2.abort()
 
 
+@pytest.mark.parametrize(
+    "missing_helper",
+    ("_qwen3_5_advance_left_padding_info", "_qwen3_5_advance_lengths_info"),
+)
+def test_prework_patch_skips_language_without_cache_advance_helper(monkeypatch, missing_helper):
+    from mlx_vlm.models import qwen3_5
+
+    class GatedDeltaNet:
+        def __call__(self):
+            pass
+
+    fake_language = ModuleType("mlx_vlm.models.qwen3_5.language")
+    for name in ("_qwen3_5_advance_left_padding_info", "_qwen3_5_advance_lengths_info"):
+        if name != missing_helper:
+            setattr(fake_language, name, lambda *args: None)
+    fake_language.Qwen3_5GatedDeltaNet = GatedDeltaNet
+    original_call = GatedDeltaNet.__call__
+    original_verify = Qwen3_5BatchInvariantForward._gated_delta
+    monkeypatch.setattr(qwen3_5, "language", fake_language)
+    monkeypatch.setattr(prework_mod, "_PATCHED", False)
+    monkeypatch.setattr(prework_mod, "apply_qwen35_vlm_qk_norm_patch", lambda: None)
+    monkeypatch.setattr(prework_mod.mx.metal, "is_available", lambda: True)
+
+    assert not prework_mod.apply_qwen35_gdn_prework_patch()
+    assert GatedDeltaNet.__call__ is original_call
+    assert Qwen3_5BatchInvariantForward._gated_delta is original_verify
+    assert not prework_mod._PATCHED
+
+
 def test_prework_patch_does_not_import_qwen4_exp(monkeypatch):
     """The patch runs at every VLM start. Importing qwen4_exp there would
     pin the upstream module before the compat vendor registers its own, and

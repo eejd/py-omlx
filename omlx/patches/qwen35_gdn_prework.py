@@ -1738,6 +1738,16 @@ def apply_qwen35_gdn_prework_patch() -> bool:
         return False
 
     from mlx_vlm.models.qwen3_5 import language as q35
+    if not all(
+        hasattr(q35, name)
+        for name in (
+            "_qwen3_5_advance_left_padding_info",
+            "_qwen3_5_advance_lengths_info",
+        )
+    ):
+        logger.debug("Qwen GDN prework skipped: cache advance helpers unavailable")
+        return False
+
     from mlx_vlm.models.qwen3_5.speculative_verifier import Qwen3_5BatchInvariantForward
     from mlx_vlm.speculative.ops.linear import _target_verify_linears
 
