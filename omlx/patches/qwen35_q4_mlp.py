@@ -368,6 +368,14 @@ def apply_qwen35_q4_mlp_patch() -> bool:
 def apply_qwen35_vlm_gdn_projection_hook():
     """Keep ANE GDN projections on the cache-owned recurrent update path."""
     from mlx_vlm.models.qwen3_5 import language
+    if not all(
+        hasattr(language, name)
+        for name in (
+            "_qwen3_5_advance_left_padding_info",
+            "_qwen3_5_advance_lengths_info",
+        )
+    ):
+        return
 
     cls = language.Qwen3_5GatedDeltaNet
     if getattr(cls.__call__, "_omlx_gdn_projection_hook", False):
