@@ -50,6 +50,7 @@ from .row_exact_qmv import one_row_qmv, rows_qmv
 logger = logging.getLogger(__name__)
 
 _PATCHED = False
+_MISSING_HELPERS_WARNED = False
 _ENGAGED_LOGGED = False
 _KERNEL = None
 _QWEN4_DECODE_KERNEL = None
@@ -1729,7 +1730,7 @@ def apply_qwen35_vlm_qk_norm_patch() -> bool:
 
 def apply_qwen35_gdn_prework_patch() -> bool:
     """Install fused prework at ordinary decode and speculative entry points."""
-    global _PATCHED
+    global _PATCHED, _MISSING_HELPERS_WARNED
     # The fused kernel assumes the patched q/k normalization.
     apply_qwen35_vlm_qk_norm_patch()
     if _PATCHED:
@@ -1738,14 +1739,21 @@ def apply_qwen35_gdn_prework_patch() -> bool:
         return False
 
     from mlx_vlm.models.qwen3_5 import language as q35
-    if not all(
-        hasattr(q35, name)
+    missing = [
+        name
         for name in (
             "_qwen3_5_advance_left_padding_info",
             "_qwen3_5_advance_lengths_info",
         )
-    ):
-        logger.debug("Qwen GDN prework skipped: cache advance helpers unavailable")
+        if not hasattr(q35, name)
+    ]
+    if missing:
+        if not _MISSING_HELPERS_WARNED:
+            logger.warning(
+                "Qwen GDN prework skipped: missing mlx-vlm helpers: %s",
+                ", ".join(missing),
+            )
+            _MISSING_HELPERS_WARNED = True
         return False
 
     from mlx_vlm.models.qwen3_5.speculative_verifier import Qwen3_5BatchInvariantForward
