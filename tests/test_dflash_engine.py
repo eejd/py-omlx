@@ -2382,3 +2382,80 @@ async def test_shutdown_persists_snapshot_on_generation_thread(
     assert engine._target_model is None
     if method != "stop":
         fallback.start.assert_awaited_once()
+
+
+class TestDFlashRenderedPromptBos:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_chat_passes_single_bos_ids(self, streaming):
+        from omlx.engine.dflash import DFlashEngine
+        from test_batched_engine import TestBatchedEngineChatBos
+
+        engine = DFlashEngine("target", "draft")
+        engine._loaded = True
+        engine._tokenizer_obj = TestBatchedEngineChatBos._tokenizer()
+        engine._apply_chat_template = lambda *args, **kwargs: "<|begin_of_text|>hello world"
+        captured = []
+
+        async def generate(**kwargs):
+            captured.append(kwargs["prompt"])
+
+        async def stream_generate(**kwargs):
+            captured.append(kwargs["prompt"])
+            yield None
+
+        engine.generate = generate
+        engine.stream_generate = stream_generate
+        messages = [{"role": "user", "content": "hello"}]
+        if streaming:
+            async for _ in engine.stream_chat(messages):
+                pass
+        else:
+            await engine.chat(messages)
+        assert captured == [[1, 2, 3]]
+        assert engine.count_chat_tokens(messages) == 3
+
+    def test_plain_rendered_prompt_keeps_tokenizer_default(self):
+        from omlx.engine.dflash import DFlashEngine
+        from test_batched_engine import TestBatchedEngineChatBos
+
+        engine = DFlashEngine("target", "draft")
+        engine._tokenizer_obj = TestBatchedEngineChatBos._tokenizer()
+        engine._apply_chat_template = lambda *args, **kwargs: "hello world"
+        assert engine.count_chat_tokens([{"role": "user", "content": "hi"}]) == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("streaming", [False, True])
+    @pytest.mark.parametrize("fallback_type", ["batched", "vlm"])
+    async def test_context_fallback_receives_same_ids(self, streaming, fallback_type):
+        from omlx.engine.dflash import DFlashEngine
+        from test_batched_engine import TestBatchedEngineChatBos
+
+        engine = DFlashEngine("target", "draft", fallback_engine_type=fallback_type)
+        engine._loaded = True
+        engine._tokenizer_obj = TestBatchedEngineChatBos._tokenizer()
+        engine._apply_chat_template = lambda *args, **kwargs: "<|begin_of_text|>hello world"
+        engine._should_fallback = lambda ids: True
+        captured = []
+
+        async def generate(**kwargs):
+            captured.append(kwargs["prompt"])
+
+        async def stream_generate(**kwargs):
+            captured.append(kwargs["prompt"])
+            yield None
+
+        async def start_fallback():
+            engine._in_fallback_mode = True
+            engine._fallback_engine = SimpleNamespace(
+                generate=generate, stream_generate=stream_generate
+            )
+
+        engine._evict_dflash_and_start_fallback = start_fallback
+        messages = [{"role": "user", "content": "hello"}]
+        if streaming:
+            async for _ in engine.stream_chat(messages):
+                pass
+        else:
+            await engine.chat(messages)
+        assert captured == [[1, 2, 3]]
