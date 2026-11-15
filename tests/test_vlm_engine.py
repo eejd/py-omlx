@@ -2467,6 +2467,83 @@ class TestCountChatTokens:
         assert count == 1
 
 
+class _RenderedPromptTokenizer:
+    """Minimal tokenizer whose chat template may supply its own BOS."""
+
+    bos_token = "<bos>"
+
+    def __init__(self, template_bos):
+        self.template_bos = template_bos
+
+    def apply_chat_template(self, messages, **kwargs):
+        return (self.bos_token if self.template_bos else "") + " ".join(
+            message["content"] for message in messages
+        )
+
+    def encode(self, prompt, add_special_tokens=True):
+        tokens = prompt.replace(self.bos_token, " <bos> ").split()
+        return ([self.bos_token] if add_special_tokens else []) + tokens
+
+
+@pytest.fixture(params=[True, False], ids=["template-bos", "no-template-bos"])
+def rendered_tokenizer(request):
+    return _RenderedPromptTokenizer(request.param)
+
+
+@pytest.fixture
+def rendered_engine(rendered_tokenizer):
+    engine = _make_loaded_engine(tokenizer=rendered_tokenizer)
+    engine._apply_chat_template = lambda messages, *args, **kwargs: (
+        rendered_tokenizer.apply_chat_template(messages)
+    )
+    engine._engine = SimpleNamespace(engine=SimpleNamespace(scheduler=object()))
+    engine._preflight_or_raise_with_eviction = AsyncMock()
+    engine._model_settings = SimpleNamespace(specprefill_enabled=True)
+    return engine
+
+
+def _rendered_ids(tokenizer, messages):
+    prompt = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    return tokenizer.encode(
+        prompt, add_special_tokens=not prompt.startswith(tokenizer.bos_token)
+    )
+
+
+def test_vlm_count_rendered_prompt_once(rendered_engine, rendered_tokenizer):
+    messages = [{"role": "user", "content": "hello"}]
+    assert rendered_engine.count_chat_tokens(messages) == len(
+        _rendered_ids(rendered_tokenizer, messages)
+    )
+
+
+@pytest.mark.asyncio
+async def test_vlm_preflight_counts_rendered_prompt_once(
+    rendered_engine, rendered_tokenizer
+):
+    messages = [{"role": "user", "content": "hello"}]
+    await rendered_engine.preflight_chat(messages)
+    assert rendered_engine._preflight_or_raise_with_eviction.call_args.kwargs[
+        "num_prompt_tokens"
+    ] == len(_rendered_ids(rendered_tokenizer, messages))
+
+
+def test_vlm_specprefill_boundary_counts_rendered_prompt_once(
+    rendered_engine, rendered_tokenizer
+):
+    messages = [
+        {"role": "system", "content": "system instructions"},
+        {"role": "user", "content": "hello"},
+    ]
+    full_ids = _rendered_ids(rendered_tokenizer, messages)
+    kwargs = {}
+    rendered_engine._inject_specprefill_system_end(messages, full_ids, kwargs)
+    assert kwargs["specprefill_system_end"] == len(full_ids) - len(
+        _rendered_ids(rendered_tokenizer, messages[1:])
+    )
+
+
 # ---------------------------------------------------------------------------
 # TestPartialModeVLM
 # ---------------------------------------------------------------------------
