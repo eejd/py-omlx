@@ -40,7 +40,7 @@ from ..scheduler import _glm5_next_prefill_floor
 from ..utils.generation_config import load_generation_config_token_ids
 from ..utils.model_loading import maybe_apply_pre_load_patches
 from ..utils.proc_memory import get_phys_footprint
-from ..utils.tokenizer import create_streaming_detokenizer
+from ..utils.tokenizer import create_streaming_detokenizer, encode_rendered_prompt
 from .base import (
     ActivityTrackingMixin,
     BaseEngine,
@@ -1251,7 +1251,7 @@ class DFlashEngine(ActivityTrackingMixin, BaseEngine):
             chat_template_kwargs=chat_template_kwargs,
             is_partial=is_partial,
         )
-        return len(self._tokenizer_obj.encode(prompt))
+        return len(encode_rendered_prompt(self._tokenizer_obj, prompt))
 
     async def preflight_chat(
         self,
@@ -2205,7 +2205,7 @@ class DFlashEngine(ActivityTrackingMixin, BaseEngine):
         )
 
         return await self.generate(
-            prompt=prompt,
+            prompt=encode_rendered_prompt(self._tokenizer_obj, prompt),
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
@@ -2285,7 +2285,7 @@ class DFlashEngine(ActivityTrackingMixin, BaseEngine):
         )
 
         async for output in self.stream_generate(
-            prompt=prompt,
+            prompt=encode_rendered_prompt(self._tokenizer_obj, prompt),
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,

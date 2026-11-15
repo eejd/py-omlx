@@ -44,6 +44,9 @@ DFlashEngine is a `BaseEngine` implementation that:
 - Bridges sync generation to async streaming via `asyncio.Queue`
 - Lazily replaces DFlash with a fallback engine when a configured context
   limit is reached
+- Encodes rendered chat prompts once, preserving a template-owned BOS when
+  routing token IDs to DFlash or its context fallback; raw completions retain
+  the tokenizer's default behavior.
 
 ---
 
