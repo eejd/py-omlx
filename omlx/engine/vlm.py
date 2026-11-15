@@ -57,6 +57,7 @@ from ..utils.image import (
     compute_per_image_hashes,
     extract_images_from_messages,
 )
+from ..utils.tokenizer import encode_rendered_prompt
 from ..utils.video import expand_video_parts
 from .base import (
     BaseEngine,
@@ -4539,7 +4540,9 @@ class VLMBatchedEngine(BaseEngine):
                     add_generation_prompt=True,
                 )
                 full_tokens = len(prompt)
-                non_system_tokens = len(self._tokenizer.encode(non_system_prompt))
+                non_system_tokens = len(
+                    encode_rendered_prompt(self._tokenizer, non_system_prompt)
+                )
                 system_end = full_tokens - non_system_tokens
                 if system_end > 0:
                     kwargs["specprefill_system_end"] = system_end
@@ -4984,7 +4987,7 @@ class VLMBatchedEngine(BaseEngine):
         # the real chat path surface the same error through the existing
         # handler chain.
         try:
-            num_tokens = len(self._tokenizer.encode(prompt))
+            num_tokens = len(encode_rendered_prompt(self._tokenizer, prompt))
         except Exception as e:
             logger.warning(
                 "VLMBatchedEngine.preflight_chat: tokenizer.encode raised "
@@ -5678,6 +5681,7 @@ class VLMBatchedEngine(BaseEngine):
 
         For VLM messages with images, this counts only the text tokens.
         Image tokens are added during vision encoding and vary by model.
+        A BOS supplied by the chat template is counted once, as in generation.
         """
         # Extract text-only version for token counting. MiMo videos must be
         # sampled first; otherwise the generic extractor rejects video parts
@@ -5695,7 +5699,7 @@ class VLMBatchedEngine(BaseEngine):
             chat_template_kwargs=chat_template_kwargs,
             is_partial=is_partial,
         )
-        return len(self._tokenizer.encode(prompt))
+        return len(encode_rendered_prompt(self._tokenizer, prompt))
 
     def has_active_requests(self) -> bool:
         """Check if the engine has active in-flight requests."""
