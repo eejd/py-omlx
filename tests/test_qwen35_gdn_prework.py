@@ -240,6 +240,10 @@ def test_prework_patch_does_not_import_qwen4_exp(monkeypatch):
     """
     import sys
 
+    for name in ("_qwen3_5_advance_left_padding_info", "_qwen3_5_advance_lengths_info"):
+        if not hasattr(language, name):
+            monkeypatch.setattr(language, name, object(), raising=False)
+
     for name in [n for n in sys.modules if n.startswith("mlx_vlm.models.qwen4_exp")]:
         monkeypatch.delitem(sys.modules, name)
     monkeypatch.setattr(prework_mod, "_PATCHED", False)
@@ -877,6 +881,9 @@ def test_qwen4_decode_route_commits_both_states_and_advances_once(monkeypatch):
 
 def test_qwen4_decode_route_does_not_commit_states_on_failure(monkeypatch):
     q35 = pytest.importorskip("mlx_vlm.models.qwen3_5.language")
+    for name in ("_qwen3_5_advance_left_padding_info", "_qwen3_5_advance_lengths_info"):
+        if not hasattr(q35, name):
+            monkeypatch.setattr(q35, name, object(), raising=False)
     cls = q35.Qwen3_5GatedDeltaNet
     old_conv = mx.zeros((1, 3, C), dtype=mx.bfloat16)
     old_recurrent = mx.zeros((1, HV, DV, DK), dtype=mx.float32)
