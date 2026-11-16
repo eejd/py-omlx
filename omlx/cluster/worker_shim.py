@@ -93,12 +93,13 @@ def ensure_cluster_python_shim(
         # Rewriting in place would truncate the script out from under a peer
         # probe that is executing it right now, so swap it in atomically — and
         # skip the swap entirely when nothing changed.
-        if (
-            target.is_file()
-            and target.read_text(encoding="utf-8") == script
-            and target.stat().st_mode & stat.S_IXUSR
-        ):
-            return target
+        if target.is_file():
+            try:
+                unchanged = target.read_text(encoding="utf-8") == script
+            except (OSError, UnicodeDecodeError, ValueError):
+                unchanged = False
+            if unchanged and target.stat().st_mode & stat.S_IXUSR:
+                return target
         temporary.write_text(script, encoding="utf-8")
         temporary.chmod(_SHIM_MODE)
         os.replace(temporary, target)
