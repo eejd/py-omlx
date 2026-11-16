@@ -169,6 +169,37 @@ def test_shim_survives_a_stale_file_at_the_target_path(tmp_path):
     assert os.access(stale, os.X_OK)
 
 
+def test_non_text_symlink_is_replaced_without_touching_its_target(tmp_path):
+    bin_dir = tmp_path / ".omlx" / "bin"
+    bin_dir.mkdir(parents=True)
+    binary = tmp_path / "python-binary"
+    original = b"\x00\xffbinary executable"
+    binary.write_bytes(original)
+    binary.chmod(0o755)
+    shim = bin_dir / "omlx-cluster-python"
+    shim.symlink_to(binary)
+
+    assert ensure_cluster_python_shim(home=tmp_path, executable="/usr/bin/python3") == shim
+    assert not shim.is_symlink()
+    assert shim.read_text(encoding="utf-8").startswith("#!/bin/sh\n")
+    assert "/usr/bin/python3" in shim.read_text(encoding="utf-8")
+    assert os.access(shim, os.X_OK)
+    assert binary.read_bytes() == original
+    assert binary.stat().st_mode & 0o777 == 0o755
+
+
+def test_invalid_utf8_shim_is_replaced(tmp_path):
+    bin_dir = tmp_path / ".omlx" / "bin"
+    bin_dir.mkdir(parents=True)
+    shim = bin_dir / "omlx-cluster-python"
+    shim.write_bytes(b"\xffinvalid utf-8")
+
+    assert ensure_cluster_python_shim(home=tmp_path, executable="/usr/bin/python3") == shim
+    assert shim.read_text(encoding="utf-8").startswith("#!/bin/sh\n")
+    assert "/usr/bin/python3" in shim.read_text(encoding="utf-8")
+    assert os.access(shim, os.X_OK)
+
+
 def test_default_home_and_environment_come_from_the_running_server(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
